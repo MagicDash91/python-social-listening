@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 
 import google.generativeai as genai
 from dotenv import load_dotenv
@@ -136,12 +137,18 @@ Focus on vaccine awareness, public health education in Indonesia, and practical 
         response = model.generate_content(prompt)
         raw = response.text.strip()
 
-        if "```" in raw:
-            parts = raw.split("```")
-            raw = parts[1] if len(parts) > 1 else raw
-            if raw.startswith("json"):
-                raw = raw[4:]
-        raw = raw.strip()
+        # Extract JSON from markdown code fences or free text.
+        # Handles: ```json{...}```, ```{...}```, bare {...}, {...} with trailing text.
+        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+        if not json_match:
+            raise json.JSONDecodeError("No JSON object found in response", raw, 0)
+        raw = json_match.group(0)
+
+        # Remove trailing commas before closing brackets (common LLM mistake)
+        raw = re.sub(r',\s*([}\]])', r'\1', raw)
+
+        # Strip BOM or invisible chars that break json.loads
+        raw = raw.strip().lstrip('\ufeff')
 
         data = json.loads(raw)
 
@@ -156,6 +163,7 @@ Focus on vaccine awareness, public health education in Indonesia, and practical 
 
     except json.JSONDecodeError as e:
         logger.error(f"JSON parse error from Gemini: {e}")
+        logger.error(f"Raw response (first 500 chars): {raw[:500]}")
         return AnalysisResponse(
             executive_summary="Analysis generated but could not be parsed. Please retry.",
             kalventis_insights="", gsk_insights="",
