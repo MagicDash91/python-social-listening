@@ -64,6 +64,68 @@ class AnalysisResponse(BaseModel):
     opportunities: list[str]
 
 
+
+
+def _extract_json(raw: str) -> dict:
+    """Extract the first balanced JSON object from an LLM response.
+
+    Handles markdown fences, surrounding text, trailing commas, and
+    invisible characters (BOM, zero-width spaces).  Uses a character-
+    counting brace tracker instead of a greedy regex so that the
+    response can contain multiple ``{…}`` blocks without confusion.
+    """
+    if not raw:
+        raise json.JSONDecodeError("Empty LLM response", "", 0)
+
+    cleaned = raw.strip().lstrip("\ufeff")
+
+    # Fast path: already clean JSON.
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    # Strip markdown code fences.
+    cleaned = re.sub(r"```(?:json)?\s*", "", cleaned)
+    cleaned = cleaned.replace("```", "")
+
+    # Find the first balanced top-level ``{ … }`` block.
+    start = cleaned.find("{")
+    if start == -1:
+        raise json.JSONDecodeError("No opening brace in LLM response", cleaned, 0)
+
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(cleaned)):
+        ch = cleaned[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in "{[":
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
+            if depth == 0:
+                candidate = cleaned[start : i + 1]
+                candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
+                return json.loads(candidate)
+
+    raise json.JSONDecodeError(
+        f"Unbalanced braces in LLM response (length={len(cleaned)})",
+        cleaned[:200],
+        0,
+    )
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -137,20 +199,8 @@ Focus on vaccine awareness, public health education in Indonesia, and practical 
         response = model.generate_content(prompt)
         raw = response.text.strip()
 
-        # Extract JSON from markdown code fences or free text.
-        # Handles: ```json{...}```, ```{...}```, bare {...}, {...} with trailing text.
-        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
-        if not json_match:
-            raise json.JSONDecodeError("No JSON object found in response", raw, 0)
-        raw = json_match.group(0)
 
-        # Remove trailing commas before closing brackets (common LLM mistake)
-        raw = re.sub(r',\s*([}\]])', r'\1', raw)
-
-        # Strip BOM or invisible chars that break json.loads
-        raw = raw.strip().lstrip('\ufeff')
-
-        data = json.loads(raw)
+        data = _extract_json(raw)
 
         return AnalysisResponse(
             executive_summary=data.get("executive_summary", ""),
@@ -316,18 +366,12 @@ Base every insight on the actual data provided. Reference specific numbers. If d
 
         response = model.generate_content(
             prompt,
-            generation_config={"temperature": 0, "max_output_tokens": 2048},
+            generation_config={"temperature": 0, "max_output_tokens": 4096},
         )
         raw = response.text.strip()
 
-        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
-        if not json_match:
-            raise json.JSONDecodeError("No JSON object found in response", raw, 0)
-        raw = json_match.group(0)
-        raw = re.sub(r',\s*([}\]])', r'\1', raw)
-        raw = raw.strip().lstrip('\ufeff')
 
-        data = json.loads(raw)
+        data = _extract_json(raw)
 
         return DeepAnalysisResponse(
             executive_summary=data.get("executive_summary", ""),
