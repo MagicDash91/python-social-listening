@@ -18,6 +18,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
+from wordcloud import WordCloud
 
 load_dotenv()
 
@@ -72,6 +73,7 @@ class AnalysisResponse(BaseModel):
     opportunities: list[str]
     sentiment_chart_b64: str | None = None
     engagement_chart_b64: str | None = None
+    wordcloud_chart_b64: str | None = None
 
 
 
@@ -228,6 +230,48 @@ def _render_engagement_chart(
     return b64
 
 
+
+def _render_wordcloud_chart(words: list[str]) -> str | None:
+    """Generate a word cloud PNG from a list of words.
+
+    Uses positional weighting: earlier words get higher frequency so they
+    appear larger.  Returns ``None`` when the word list is empty.
+    """
+    if not words:
+        return None
+
+    # Build frequency dict with positional weighting (first = heaviest).
+    n = len(words)
+    freqs: dict[str, float] = {}
+    for i, word in enumerate(words):
+        w = word.strip().lower()
+        if not w:
+            continue
+        weight = max(1.0, (n - i) * (100.0 / n))
+        freqs[w] = freqs.get(w, 0) + weight
+
+    if not freqs:
+        return None
+
+    wc = WordCloud(
+        width=800,
+        height=400,
+        max_words=60,
+        background_color="white",
+        colormap="viridis",
+        collocations=False,
+    ).generate_from_frequencies(freqs)
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.imshow(wc, interpolation="bilinear")
+    ax.axis("off")
+
+    b64 = _fig_to_b64(fig)
+    plt.close(fig)
+    return b64
+
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -307,6 +351,8 @@ Focus on vaccine awareness, public health education in Indonesia, and practical 
 
         sentiment_b64 = _render_sentiment_chart(kv.sentiment, gsk.sentiment, "Kalventis", "GSK")
         engagement_b64 = _render_engagement_chart(kv, gsk, "Kalventis", "GSK")
+
+        wordcloud_b64 = _render_wordcloud_chart(request.top_words)
         return AnalysisResponse(
             executive_summary=data.get("executive_summary", ""),
             kalventis_insights=data.get("kalventis_insights", ""),
@@ -316,6 +362,7 @@ Focus on vaccine awareness, public health education in Indonesia, and practical 
             opportunities=data.get("opportunities", []),
             sentiment_chart_b64=sentiment_b64,
             engagement_chart_b64=engagement_b64,
+            wordcloud_chart_b64=wordcloud_b64,
         )
 
     except json.JSONDecodeError as e:
@@ -364,6 +411,7 @@ class DeepAnalysisResponse(BaseModel):
     recommendations: list[str]
     sentiment_chart_b64: str | None = None
     engagement_chart_b64: str | None = None
+    wordcloud_chart_b64: str | None = None
 
 
 @app.post("/api/v1/monitoring/analysis")
@@ -485,6 +533,8 @@ Base every insight on the actual data provided. Reference specific numbers. If d
 
         sentiment_b64 = _render_sentiment_chart(a.sentiment, b.sentiment, request.brand_a_name, request.brand_b_name)
         engagement_b64 = _render_engagement_chart(a, b, request.brand_a_name, request.brand_b_name)
+
+        wordcloud_b64 = _render_wordcloud_chart(request.top_terms)
         return DeepAnalysisResponse(
             executive_summary=data.get("executive_summary", ""),
             brand_a_insights=data.get("brand_a_insights", ""),
@@ -498,6 +548,7 @@ Base every insight on the actual data provided. Reference specific numbers. If d
             recommendations=data.get("recommendations", []),
             sentiment_chart_b64=sentiment_b64,
             engagement_chart_b64=engagement_b64,
+            wordcloud_chart_b64=wordcloud_b64,
         )
 
     except json.JSONDecodeError as e:
