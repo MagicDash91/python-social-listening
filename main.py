@@ -610,33 +610,37 @@ async def kalventis_overview_analysis(request: KalventisAnalysisRequest) -> Kalv
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel(GEMINI_MODEL)
 
-        posts_sample = request.posts[:25]
+        posts_sample = request.posts[:15]
         posts_text = "\n".join(
-            f"[{i+1}] {p.type}: {p.likes} likes, {p.comments} comments - {p.caption[:120]}"
+            f"[{i+1}] {p.type}: {p.likes} likes, {p.comments} comments - {p.caption[:100]}"
             for i, p in enumerate(posts_sample)
         )
         period_label = request.period or 'recent window'
 
-        # Topics
-        t_result = model.generate_content(
-            f"Analyze Instagram captions from @kenapaharusvaksin (Kalventis), an Indonesian vaccine education brand. Identify 5-8 main topics.\nPosts ({period_label}):\n{posts_text[:6000]}\nReturn JSON: {{\"topics\":[{{\"name\":\"topic\",\"mentions\":N,\"momentum\":\"growing|steady|declining\",\"summary\":\"one sentence\"}}]}}",
-            generation_config={"temperature": 0, "max_output_tokens": 2048, "response_mime_type": "application/json"},
-        )
-        topics_data = _extract_json(t_result.text.strip())
-        topics = [TopicItem(name=t.get("name",""), mentions=t.get("mentions",0), momentum=t.get("momentum","steady"), summary=t.get("summary","")) for t in topics_data.get("topics",[])]
+        prompt = f"""Analyze Instagram posts from @kenapaharusvaksin (Kalventis), an Indonesian vaccine education brand.
 
-        # Content strategy
-        s_result = model.generate_content(
-            f"Analyze Instagram posts from @kenapaharusvaksin (Kalventis). Assess content performance and give strategy.\nPosts ({period_label}):\n{posts_text[:6000]}\nReturn JSON: {{\"content_summary\":\"summary\",\"patterns\":[\"p1\",\"p2\",\"p3\"],\"recommendations\":[\"r1\",\"r2\",\"r3\",\"r4\"]}}",
-            generation_config={"temperature": 0, "max_output_tokens": 2048, "response_mime_type": "application/json"},
-        )
-        strategy_data = _extract_json(s_result.text.strip())
+Posts ({period_label}):
+{posts_text[:4000]}
+
+Return ONLY valid JSON (no markdown):
+{{
+  "topics": [{{"name": "topic", "mentions": N, "momentum": "growing|steady|declining", "summary": "sentence"}}],
+  "content_summary": "2-3 sentence summary of content strategy",
+  "patterns": ["pattern 1", "pattern 2", "pattern 3"],
+  "recommendations": ["action 1", "action 2", "action 3", "action 4"]
+}}"""
+
+        result = model.generate_content(prompt)
+        raw = result.text.strip()
+        data = _extract_json(raw)
+
+        topics = [TopicItem(name=t.get("name",""), mentions=t.get("mentions",0), momentum=t.get("momentum","steady"), summary=t.get("summary","")) for t in data.get("topics",[])]
 
         return KalventisAnalysisResponse(
             topics=topics,
-            content_summary=strategy_data.get("content_summary",""),
-            patterns=strategy_data.get("patterns",[]),
-            recommendations=strategy_data.get("recommendations",[]),
+            content_summary=data.get("content_summary",""),
+            patterns=data.get("patterns",[]),
+            recommendations=data.get("recommendations",[]),
         )
 
 
