@@ -639,6 +639,8 @@ Respond ONLY with valid JSON (no markdown, no code fences):
             generation_config={"temperature": 0, "max_output_tokens": 4096, "response_mime_type": "application/json"},
         )
         raw = result.text.strip()
+        logger.info(f"Raw response length: {len(raw)}, first 200: {raw[:200]}")
+        logger.info(f"Raw response last 200: {raw[-200:]}")
         data = _extract_json(raw)
 
         topics = [
