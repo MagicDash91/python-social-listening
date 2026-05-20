@@ -615,24 +615,24 @@ async def kalventis_overview_analysis(request: KalventisAnalysisRequest) -> Kalv
             for i, p in enumerate(request.posts[:100])
         )
 
-        prompt = f\"\"\"Analyze these Instagram posts from @kenapaharusvaksin (Kalventis), an Indonesian vaccine education brand. Perform two analyses:
+        prompt = """Analyze these Instagram posts from @kenapaharusvaksin (Kalventis), an Indonesian vaccine education brand. Perform two analyses:
 
 1. TOPIC ANALYSIS: Identify 5-8 distinct topics, estimate post count per topic, determine momentum (growing/steady/declining), and write a 1-sentence summary per topic.
 
 2. CONTENT STRATEGY: Write a 2-3 sentence summary of what content strategies are working, identify 3-5 engagement patterns, and provide 4-5 actionable recommendations for the next 30 days.
 
-Posts ({request.period or 'recent window'}):
-{posts_text[:10000]}
+Posts (""" + (request.period or 'recent window') + """):
+""" + posts_text[:10000] + """
 
 Respond ONLY with valid JSON (no markdown, no code fences):
-{{
+{
   "topics": [
-    {{ "name": "short topic name", "mentions": number, "momentum": "growing|steady|declining", "summary": "one sentence" }}
+    { "name": "short topic name", "mentions": number, "momentum": "growing|steady|declining", "summary": "one sentence" }
   ],
   "content_summary": "2-3 sentence content strategy summary",
   "patterns": ["engagement pattern 1", "pattern 2", "pattern 3"],
   "recommendations": ["actionable recommendation 1", "recommendation 2", "recommendation 3", "recommendation 4"]
-}}\"\"\"
+}"""
 
         result = model.generate_content(
             prompt,
